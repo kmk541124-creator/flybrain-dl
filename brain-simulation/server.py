@@ -14,6 +14,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
+BASE_DIR = Path(__file__).parent
 RESULTS_DIR = Path("results")
 RESULTS_DIR.mkdir(exist_ok=True)
 MAX_RESULTS = 20
@@ -72,7 +73,7 @@ def worker():
         out_dir.mkdir(exist_ok=True)
         try:
             result = subprocess.run(
-                [sys.executable, "9.py", source, str(out_dir), str(start), "" if end is None else str(end)],
+                [sys.executable, str(BASE_DIR / "9.py"), source, str(out_dir), str(start), "" if end is None else str(end)],
                 capture_output=True, text=True, timeout=JOB_TIMEOUT_SEC,
             )
             print(result.stdout)
@@ -153,7 +154,7 @@ def job_status(job_id: str):
 
 
 app.mount("/results", StaticFiles(directory=RESULTS_DIR), name="results")
-app.mount("/", StaticFiles(directory="viewer", html=True), name="viewer")
+app.mount("/", StaticFiles(directory=BASE_DIR / "viewer", html=True), name="viewer")
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8080)))

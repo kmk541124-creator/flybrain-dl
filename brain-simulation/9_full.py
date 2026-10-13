@@ -15,7 +15,7 @@ DATA_DIR = "data"
 ANNO_FILE = f"{DATA_DIR}/Supplemental_file1_neuron_annotations.tsv"
 BRAIN_FILE = f"{DATA_DIR}/brain_weights.pt"
 SONG_FILE = f"{DATA_DIR}/song_inputs.pt"
-VIEWER_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("viewer")
+VIEWER_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).parent / "viewer"
 
 START_SEC = 0
 DURATION_SEC = 300

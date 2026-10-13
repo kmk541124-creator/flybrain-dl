@@ -11,7 +11,7 @@ from youtubedownload import download_video
 
 DATA_DIR = "data"
 LIGHT_FILE = f"{DATA_DIR}/light_brain.npz"
-VIEWER_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else Path("viewer")
+VIEWER_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else Path(__file__).parent / "viewer"
 
 START_SEC = float(sys.argv[3]) if len(sys.argv) > 3 else 0.0
 END_SEC = float(sys.argv[4]) if len(sys.argv) > 4 and sys.argv[4] else None

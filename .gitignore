@@ -11,9 +11,9 @@ data/
 # 실행 결과물 (실행하면 다시 생성됨)
 results/
 flagged/
-viewer/brain_data.bin
-viewer/brain_meta.json
-viewer/video.mp4
+brain-simulation/viewer/brain_data.bin
+brain-simulation/viewer/brain_meta.json
+brain-simulation/viewer/video.mp4
 step4_response.png
 판별_분리/
 
