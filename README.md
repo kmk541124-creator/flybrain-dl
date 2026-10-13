@@ -1,11 +1,12 @@
 # flybrain-dl
 
-초파리 뇌 커넥톰(FlyWire) 데이터를 이용한 두 가지 프로젝트를 모아 둔 저장소입니다.
+초파리 뇌 커넥톰(FlyWire) 데이터를 이용한 세 가지 프로젝트를 모아 둔 저장소입니다.
 
 | 폴더 | 프로젝트 | 한 줄 설명 |
 | --- | --- | --- |
 | [`brain-simulation/`](brain-simulation) | 초파리 뇌 시뮬레이션 | 영상의 소리와 화면을 초파리 뇌에 넣고, 뉴런 반응을 영상과 함께 3D로 보여 주는 웹 |
-| [`deep-learning/`](deep-learning) | 초파리 뇌 딥러닝 (가수 판별) | 노래를 초파리 뇌에 들려주고, 케년 세포 반응만으로 어떤 가수의 노래인지 맞히는 모델 |
+| [`singer-classifier/`](singer-classifier) | 초파리 뇌 딥러닝 (가수 판별) | 노래를 초파리 뇌에 들려주고, 케년 세포 반응만으로 어떤 가수의 노래인지 맞히는 모델 |
+| [`cube-solver/`](cube-solver) | 초파리 뇌 강화학습 (루빅스 큐브) | 초파리의 후각 학습 회로(PN→케년 세포)로 루빅스 큐브 맞추기를 학습시키는 실험 |
 
 ```
 flybrain-dl/
@@ -19,13 +20,15 @@ flybrain-dl/
 │   ├── viewer/           # 3D 뷰어 화면
 │   ├── Dockerfile
 │   └── requirements.txt
-└── deep-learning/        # 초파리 뇌 딥러닝
-    ├── deep.py, 3.py ~ 7.py   # 학습 단계
-    ├── 8.py, app.py           # 새 노래 판별
-    └── cube.py, learn.py      # 실험: 루빅스 큐브 강화학습
+├── singer-classifier/    # 초파리 뇌 딥러닝 (가수 판별)
+│   ├── deep.py, 3.py ~ 7.py   # 학습 단계
+│   └── 8.py, app.py           # 새 노래 판별
+└── cube-solver/          # 초파리 뇌 강화학습 (루빅스 큐브)
+    ├── cube.py                # 큐브 시뮬레이터
+    └── learn.py               # 학습 실행
 ```
 
-> 모든 명령은 **저장소 맨 위 폴더(flybrain-dl)에서** 실행합니다. 두 프로젝트가 `data/` 폴더를 함께 쓰기 때문입니다.
+> 모든 명령은 **저장소 맨 위 폴더(flybrain-dl)에서** 실행합니다. 모든 프로젝트가 `data/` 폴더를 함께 쓰기 때문입니다.
 
 ---
 
@@ -92,7 +95,7 @@ docker run -p 8080:8080 flybrain
 
 ---
 
-## 2. 초파리 뇌 딥러닝 (`deep-learning/`)
+## 2. 초파리 뇌 딥러닝 – 가수 판별 (`singer-classifier/`)
 
 노래에서 목소리만 분리해 초파리의 청각 뉴런에 들려주고, 학습·기억을 담당하는 **케년 세포(Kenyon Cell)**의 반응을 입력으로 가수를 분류합니다.
 
@@ -115,26 +118,39 @@ demucs --two-stems=vocals --mp3 -o 윤하_분리 윤하/*.mp3
 
 | 순서 | 명령 | 하는 일 | 결과 |
 | --- | --- | --- | --- |
-| 1 | `python deep-learning/deep.py` | 연결 정보를 뇌 가중치 행렬로 변환 | `data/brain_weights.pt` |
-| 2 | `python deep-learning/3.py` | 목소리를 주파수 대역으로 나눠 청각 뉴런 입력으로 변환 | `data/song_inputs.pt` |
-| 3 | `python deep-learning/4.py` | 노래를 뇌에 들려주고 케년 세포 반응 기록 | `data/brain_response.pt`, `step4_response.png` |
-| 4 | `python deep-learning/5.py` | 케년 세포 반응으로 가수 분류 모델 학습 | `data/singer_model.pt` |
-| 5 | `python deep-learning/6.py` | 곡 하나씩 빼고 검증해 "초파리 뇌 / 소리 그대로 / 찍기" 정확도 비교 | 터미널 출력 |
-| 6 | `python deep-learning/7.py` | 전체 곡으로 최종 모델 학습 | `data/final_model.pt` |
+| 1 | `python singer-classifier/deep.py` | 연결 정보를 뇌 가중치 행렬로 변환 | `data/brain_weights.pt` |
+| 2 | `python singer-classifier/3.py` | 목소리를 주파수 대역으로 나눠 청각 뉴런 입력으로 변환 | `data/song_inputs.pt` |
+| 3 | `python singer-classifier/4.py` | 노래를 뇌에 들려주고 케년 세포 반응 기록 | `data/brain_response.pt`, `step4_response.png` |
+| 4 | `python singer-classifier/5.py` | 케년 세포 반응으로 가수 분류 모델 학습 | `data/singer_model.pt` |
+| 5 | `python singer-classifier/6.py` | 곡 하나씩 빼고 검증해 "초파리 뇌 / 소리 그대로 / 찍기" 정확도 비교 | 터미널 출력 |
+| 6 | `python singer-classifier/7.py` | 전체 곡으로 최종 모델 학습 | `data/final_model.pt` |
 
 ### 새 노래 판별
 
 ```bash
-python deep-learning/8.py <노래 파일 경로>   # 터미널
-python deep-learning/app.py                  # 웹 화면 (Gradio)
+python singer-classifier/8.py <노래 파일 경로>   # 터미널
+python singer-classifier/app.py                  # 웹 화면 (Gradio)
 ```
 
-### 실험: 루빅스 큐브 강화학습
+## 3. 초파리 뇌 강화학습 – 루빅스 큐브 (`cube-solver/`)
 
-`cube.py`는 큐브 시뮬레이터, `learn.py`는 초파리의 PN→케년 세포 연결을 특징 추출기로 써서 큐브 맞추기를 강화학습(Q-learning)시키는 실험입니다.
+초파리가 냄새를 기억할 때 쓰는 회로(투사 뉴런 PN → 케년 세포)를 그대로 가져와, 큐브의 색 배치를 케년 세포 반응으로 바꾼 뒤 어떤 방향으로 돌릴지 강화학습(Q-learning)으로 배우게 합니다.
+
+| 파일 | 설명 |
+| --- | --- |
+| `cube.py` | 큐브 상태, 회전, 섞기, 완성 판정 |
+| `learn.py` | PN→케년 세포 연결을 FlyWire 데이터에서 만들고 학습 실행 |
+
+### 설치
 
 ```bash
-python deep-learning/learn.py
+pip install numpy pandas pyarrow
+```
+
+### 실행
+
+```bash
+python cube-solver/learn.py
 ```
 
 ---
@@ -143,5 +159,6 @@ python deep-learning/learn.py
 
 - **언어**: Python
 - **뇌 시뮬레이션**: NumPy, SciPy(희소 행렬), FFmpeg, yt-dlp, FastAPI, Uvicorn, JavaScript(3D 뷰어), Docker
-- **딥러닝**: PyTorch, pandas, librosa, demucs, Gradio, matplotlib
+- **가수 판별**: PyTorch, pandas, librosa, demucs, Gradio, matplotlib
+- **큐브 강화학습**: NumPy, pandas (Q-learning 직접 구현)
 - **데이터**: FlyWire 초파리 뇌 커넥톰 (783 버전)
