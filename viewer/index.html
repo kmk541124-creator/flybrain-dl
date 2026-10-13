@@ -1,0 +1,439 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>초파리 뇌 반응</title>
+<style>
+  body { margin: 0; background: #050508; color: #ddd; font-family: sans-serif; overflow: hidden; }
+  #scene { position: absolute; top: 0; left: 0; right: 0; bottom: 110px; }
+  #side { position: absolute; top: 10px; left: 10px; width: 300px; background: rgba(0, 0, 0, 0.65); padding: 10px; border-radius: 8px; }
+  #status { margin: 6px 0; font-size: 12px; }
+  .row { display: flex; gap: 6px; margin-bottom: 8px; }
+  #file { flex: 1; min-width: 0; font-size: 12px; color: #bbb; }
+  .hint { font-size: 11px; color: #888; margin: -4px 0 8px; }
+  .time { flex: 1; min-width: 0; padding: 6px; border-radius: 4px; border: 1px solid #444; background: #111; color: #eee; }
+  #source { flex: 1; min-width: 0; padding: 6px; border-radius: 4px; border: 1px solid #444; background: #111; color: #eee; }
+  button { padding: 6px 10px; border-radius: 4px; border: none; background: #00b8d4; color: #000; font-weight: bold; cursor: pointer; }
+  button:disabled { background: #444; color: #888; cursor: wait; }
+  #play { width: 100%; }
+  .legend { font-size: 12px; }
+  .dot { display: inline-block; width: 10px; height: 10px; margin-right: 6px; border-radius: 50%; }
+  #video { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  #timeline { position: absolute; left: 0; right: 0; bottom: 0; height: 110px; background: #111; }
+  #graph { width: 100%; height: 100%; display: block; cursor: pointer; }
+</style>
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+</head>
+<body>
+<div id="scene"></div>
+<div id="side">
+  <div class="row">
+    <input id="source" placeholder="유튜브 링크">
+    <button id="run">불러오기</button>
+  </div>
+  <div class="row"><input id="file" type="file" accept="video/mp4,video/webm"></div>
+  <div class="hint">링크 대신 영상 파일(mp4, webm, 50MB 이하)을 올릴 수도 있습니다. 파일을 고르면 파일을 씁니다.</div>
+  <div class="row">
+    <input id="start" class="time" placeholder="시작 (비우면 0초)">
+    <input id="end" class="time" placeholder="끝 (비우면 끝까지)">
+  </div>
+  <div class="row"><button id="play">재생</button></div>
+  <div id="status">불러오는 중...</div>
+  <div class="legend">
+    <div><span class="dot" style="background:#555"></span>반응 없음 (뇌 구조)</div>
+    <div><span class="dot" style="background:#00e5ff"></span>소리 뉴런 (JO)</div>
+    <div><span class="dot" style="background:#ff2bd6"></span>케년 세포 (KC)</div>
+    <div><span class="dot" style="background:#7dff2b"></span>광수용체 (눈)</div>
+    <div><span class="dot" style="background:#ff8a00"></span>그 밖의 뉴런</div>
+  </div>
+</div>
+<video id="video" playsinline></video>
+<div id="timeline"><canvas id="graph"></canvas></div>
+<script type="module">
+import * as THREE from "three";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+
+const GROUP_NAMES = ["소리 뉴런", "케년 세포", "광수용체", "그 밖의 뉴런"];
+const GROUP_COLORS = ["#00e5ff", "#ff2bd6", "#7dff2b", "#ff8a00"];
+const GRAY = 0.16;
+const BRAIN_POS = new THREE.Vector3(2.15, 1.05, -0.1);
+const BRAIN_SCALE = 1.1;
+const dpr = devicePixelRatio;
+const bust = "?t=" + Date.now();
+
+const status = document.getElementById("status");
+const sourceInput = document.getElementById("source");
+const runButton = document.getElementById("run");
+const playButton = document.getElementById("play");
+const video = document.getElementById("video");
+
+const jobId = new URLSearchParams(location.search).get("job");
+const base = jobId && /^[0-9a-f]{12}$/.test(jobId) ? `results/${jobId}/` : "empty/";
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const MAX_UPLOAD_MB = 50;
+const fileInput = document.getElementById("file");
+
+function parseTime(text) {
+  text = text.trim();
+  if (!text) return NaN;
+  if (!/^\d+(\.\d+)?$|^\d+:\d{1,2}(\.\d+)?$/.test(text)) return NaN;
+  const parts = text.split(":").map(Number);
+  return parts.length === 2 ? parts[0] * 60 + parts[1] : parts[0];
+}
+
+async function readJson(res) {
+  const text = await res.text();
+  try {
+    return JSON.parse(text);
+  } catch {
+    return { serverDown: true, detail: `서버가 정상 응답을 주지 않았습니다 (HTTP ${res.status}).` };
+  }
+}
+
+async function waitForJob(id) {
+  let failures = 0;
+  while (true) {
+    let body = null;
+    let ok = false;
+    try {
+      const res = await fetch(`/api/jobs/${id}`);
+      body = await readJson(res);
+      ok = res.ok;
+    } catch {
+      body = { serverDown: true, detail: "서버에 연결할 수 없습니다." };
+    }
+    if (body.serverDown) {
+      failures += 1;
+      if (failures > 45) throw new Error(body.detail + " 서버가 다시 켜지지 않습니다.");
+      status.textContent = `서버 응답을 기다리는 중... (${failures})`;
+      await sleep(2000);
+      continue;
+    }
+    failures = 0;
+    if (!ok) throw new Error(body.detail === "없는 작업입니다." ? "서버가 재시작되어 작업이 사라졌습니다. 메모리가 부족했을 수 있으니 더 짧은 구간으로 다시 시도해 주세요." : (body.detail || "상태 확인 실패"));
+    if (body.state === "done") return;
+    if (body.state === "error") throw new Error(body.error);
+    status.textContent = body.state === "waiting"
+      ? `대기 중... 앞에 ${body.ahead}개 있음`
+      : "영상 받고 뇌에 넣는 중... (무료 서버라 몇 분 걸립니다)";
+    await sleep(2000);
+  }
+}
+
+runButton.addEventListener("click", async () => {
+  const source = sourceInput.value.trim();
+  const file = fileInput.files[0];
+  if (!source && !file) { status.textContent = "유튜브 링크를 넣거나 영상 파일을 골라 주세요."; return; }
+  if (file && file.size > MAX_UPLOAD_MB * 1024 * 1024) { status.textContent = `영상 파일은 ${MAX_UPLOAD_MB}MB까지 올릴 수 있습니다.`; return; }
+  const startText = document.getElementById("start").value;
+  const endText = document.getElementById("end").value;
+  const start = startText.trim() ? parseTime(startText) : 0;
+  const end = endText.trim() ? parseTime(endText) : null;
+  if (Number.isNaN(start) || (end !== null && Number.isNaN(end))) { status.textContent = "시간은 90 또는 1:30처럼 넣어 주세요."; return; }
+  if (end !== null && end <= start) { status.textContent = "끝 시간은 시작 시간보다 뒤여야 합니다."; return; }
+  runButton.disabled = true;
+  status.textContent = file ? "영상 파일 올리는 중..." : "요청 보내는 중...";
+  try {
+    const res = file
+      ? await fetch(`/api/upload?start=${start}${end === null ? "" : `&end=${end}`}`, {
+          method: "POST",
+          headers: { "Content-Type": "application/octet-stream" },
+          body: file,
+        })
+      : await fetch("/api/process", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ source, start, end }),
+        });
+    const body = await readJson(res);
+    if (body.serverDown) throw new Error(body.detail + " 서버가 잠에서 깨는 중일 수 있으니 1분 뒤 새로고침하고 다시 시도해 주세요.");
+    if (!res.ok) throw new Error(body.detail || "처리 실패");
+    await waitForJob(body.job);
+    location.search = "?job=" + body.job;
+  } catch (err) {
+    status.textContent = "오류: " + err.message;
+    runButton.disabled = false;
+  }
+});
+
+const meta = await (await fetch(base + "brain_meta.json" + bust)).json();
+const activity = new Uint8Array(await (await fetch(base + "brain_data.bin" + bust)).arrayBuffer());
+const n = meta.num_neurons;
+const numFrames = meta.num_frames;
+const hasVideo = Boolean(meta.video);
+
+const box = document.getElementById("scene");
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x07070c);
+const camera = new THREE.PerspectiveCamera(45, box.clientWidth / box.clientHeight, 0.01, 100);
+camera.position.set(1.4, 1.4, 3.4);
+
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(dpr);
+box.appendChild(renderer.domElement);
+
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(1.0, 0.55, 0);
+controls.enableDamping = true;
+
+scene.add(new THREE.HemisphereLight(0xbfd4ff, 0x202020, 0.9));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2);
+sun.position.set(2, 4, 3);
+scene.add(sun);
+const screenGlow = new THREE.PointLight(0x88aaff, 1.5, 3);
+screenGlow.position.set(0, 0.6, -0.2);
+scene.add(screenGlow);
+
+function addBox(w, h, d, color, x, y, z) {
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(w, h, d),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.7 }),
+  );
+  mesh.position.set(x, y, z);
+  scene.add(mesh);
+  return mesh;
+}
+
+const floor = new THREE.Mesh(
+  new THREE.PlaneGeometry(20, 20),
+  new THREE.MeshStandardMaterial({ color: 0x15151c, roughness: 1 }),
+);
+floor.rotation.x = -Math.PI / 2;
+floor.position.y = -0.93;
+scene.add(floor);
+
+addBox(2.6, 0.06, 1.3, 0x8b5a2b, 0, -0.03, 0);
+for (const [x, z] of [[-1.22, -0.58], [1.22, -0.58], [-1.22, 0.58], [1.22, 0.58]]) {
+  addBox(0.06, 0.9, 0.06, 0x5a3a1b, x, -0.48, z);
+}
+
+addBox(0.4, 0.02, 0.25, 0x222222, 0, 0.01, -0.42);
+addBox(0.05, 0.22, 0.05, 0x222222, 0, 0.13, -0.43);
+addBox(1.3, 0.78, 0.06, 0x111111, 0, 0.62, -0.42);
+
+const videoTexture = new THREE.VideoTexture(video);
+videoTexture.colorSpace = THREE.SRGBColorSpace;
+const screen = new THREE.Mesh(
+  new THREE.PlaneGeometry(1.2, 0.675),
+  new THREE.MeshBasicMaterial({ map: videoTexture }),
+);
+screen.position.set(0, 0.62, -0.385);
+scene.add(screen);
+
+function makeFly() {
+  const fly = new THREE.Group();
+  const bodyMat = new THREE.MeshStandardMaterial({ color: 0xb08850, roughness: 0.6 });
+  const stripeMat = new THREE.MeshStandardMaterial({ color: 0x3a2a18, roughness: 0.6 });
+  const eyeMat = new THREE.MeshStandardMaterial({ color: 0xe0262b, roughness: 0.25 });
+  const shineMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  const legMat = new THREE.MeshStandardMaterial({ color: 0x2a1d10 });
+  const wingMat = new THREE.MeshStandardMaterial({
+    color: 0xd8ecff, transparent: true, opacity: 0.45, side: THREE.DoubleSide,
+  });
+
+  const thorax = new THREE.Mesh(new THREE.SphereGeometry(0.5, 32, 16), bodyMat);
+  thorax.scale.set(1, 0.9, 1.1);
+  fly.add(thorax);
+
+  const abdomen = new THREE.Mesh(new THREE.SphereGeometry(0.55, 32, 16), bodyMat);
+  abdomen.scale.set(0.9, 0.8, 1.3);
+  abdomen.position.set(0, -0.05, 0.85);
+  fly.add(abdomen);
+  for (const [z, r] of [[0.65, 0.47], [0.9, 0.48], [1.15, 0.38]]) {
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.05, 8, 32), stripeMat);
+    ring.scale.set(0.95, 0.82, 1);
+    ring.position.set(0, -0.05, z);
+    fly.add(ring);
+  }
+
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.42, 32, 16), bodyMat);
+  head.position.set(0, 0.12, -0.72);
+  fly.add(head);
+  for (const side of [-1, 1]) {
+    const eye = new THREE.Mesh(new THREE.SphereGeometry(0.27, 32, 16), eyeMat);
+    eye.position.set(side * 0.3, 0.2, -0.86);
+    fly.add(eye);
+    const shine = new THREE.Mesh(new THREE.SphereGeometry(0.06, 16, 8), shineMat);
+    shine.position.set(side * 0.37, 0.32, -1.08);
+    fly.add(shine);
+
+    const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.02, 0.02, 0.3), legMat);
+    antenna.position.set(side * 0.1, 0.55, -0.95);
+    antenna.rotation.set(-0.5, 0, side * -0.3);
+    fly.add(antenna);
+    const tip = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 8), legMat);
+    tip.position.set(side * 0.15, 0.68, -1.03);
+    fly.add(tip);
+
+    for (const z of [-0.3, 0, 0.3]) {
+      const leg = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.025, 0.7), legMat);
+      leg.position.set(side * 0.5, -0.4, z);
+      leg.rotation.z = side * 0.7;
+      fly.add(leg);
+    }
+  }
+
+  const wings = [];
+  for (const side of [-1, 1]) {
+    const pivot = new THREE.Group();
+    pivot.position.set(side * 0.15, 0.4, 0.1);
+    const wing = new THREE.Mesh(new THREE.CircleGeometry(0.6, 32), wingMat);
+    wing.scale.set(0.45, 1, 1);
+    wing.position.set(side * 0.25, 0, 0.55);
+    wing.rotation.x = -Math.PI / 2;
+    pivot.add(wing);
+    fly.add(pivot);
+    wings.push({ pivot, side });
+  }
+  return { fly, wings };
+}
+
+const { fly, wings } = makeFly();
+fly.scale.setScalar(0.24);
+fly.rotation.y = -0.35;
+fly.position.set(0, 0.22, 0.3);
+scene.add(fly);
+
+const groupRGB = GROUP_COLORS.map((hex) => new THREE.Color(hex));
+const geometry = new THREE.BufferGeometry();
+geometry.setAttribute("position", new THREE.Float32BufferAttribute(meta.positions, 3));
+const colors = new Float32Array(n * 3);
+geometry.setAttribute("color", new THREE.BufferAttribute(colors, 3));
+const material = new THREE.PointsMaterial({
+  size: n > 60000 ? 0.005 : 0.008,
+  vertexColors: true,
+  transparent: true,
+  opacity: 0.9,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+});
+const brain = new THREE.Group();
+brain.add(new THREE.Points(geometry, material));
+brain.scale.setScalar(BRAIN_SCALE);
+brain.position.copy(BRAIN_POS);
+scene.add(brain);
+
+function paint(frame) {
+  const offset = frame * n;
+  for (let i = 0; i < n; i++) {
+    const level = activity[offset + i] / 255;
+    const c = groupRGB[meta.groups[i]];
+    colors[i * 3] = GRAY + (c.r - GRAY) * level;
+    colors[i * 3 + 1] = GRAY + (c.g - GRAY) * level;
+    colors[i * 3 + 2] = GRAY + (c.b - GRAY) * level;
+  }
+  geometry.attributes.color.needsUpdate = true;
+}
+
+const curves = GROUP_NAMES.map(() => new Float32Array(numFrames));
+for (let f = 0; f < numFrames; f++) {
+  const offset = f * n;
+  for (let i = 0; i < n; i++) curves[meta.groups[i]][f] += activity[offset + i];
+}
+for (const curve of curves) {
+  let min = Infinity;
+  let max = -Infinity;
+  for (const v of curve) { min = Math.min(min, v); max = Math.max(max, v); }
+  for (let f = 0; f < numFrames; f++) curve[f] = (curve[f] - min) / ((max - min) || 1);
+}
+
+const canvas = document.getElementById("graph");
+const ctx = canvas.getContext("2d");
+
+function drawTimeline(frame) {
+  const w = canvas.width;
+  const h = canvas.height;
+  const rowH = h / curves.length;
+  ctx.clearRect(0, 0, w, h);
+  ctx.font = `${10 * dpr}px sans-serif`;
+  curves.forEach((curve, g) => {
+    ctx.strokeStyle = GROUP_COLORS[g];
+    ctx.lineWidth = 1.5 * dpr;
+    ctx.beginPath();
+    for (let f = 0; f < numFrames; f++) {
+      const x = (f / Math.max(1, numFrames - 1)) * w;
+      const y = (g + 1) * rowH - curve[f] * rowH * 0.85;
+      if (f === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+    ctx.fillStyle = GROUP_COLORS[g];
+    ctx.fillText(GROUP_NAMES[g], 6 * dpr, g * rowH + 11 * dpr);
+  });
+  const x = (frame / Math.max(1, numFrames - 1)) * w;
+  ctx.strokeStyle = "#fff";
+  ctx.lineWidth = 2 * dpr;
+  ctx.beginPath();
+  ctx.moveTo(x, 0);
+  ctx.lineTo(x, h);
+  ctx.stroke();
+}
+
+if (hasVideo) {
+  video.src = base + meta.video + bust;
+} else {
+  playButton.disabled = true;
+}
+video.addEventListener("loadedmetadata", () => { video.currentTime = meta.start_sec; });
+video.addEventListener("pause", () => { playButton.textContent = "재생"; });
+video.addEventListener("play", () => { playButton.textContent = "일시정지"; });
+const clipEnd = () => meta.start_sec + numFrames / meta.fps;
+playButton.addEventListener("click", () => {
+  if (video.currentTime < meta.start_sec || video.currentTime >= clipEnd() - 0.05) video.currentTime = meta.start_sec;
+  if (video.paused) video.play();
+  else video.pause();
+});
+
+canvas.addEventListener("click", (e) => {
+  const rect = canvas.getBoundingClientRect();
+  const ratio = (e.clientX - rect.left) / rect.width;
+  video.currentTime = meta.start_sec + (ratio * numFrames) / meta.fps;
+});
+
+let lastFrame = -1;
+function resize() {
+  camera.aspect = box.clientWidth / box.clientHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(box.clientWidth, box.clientHeight);
+  canvas.width = canvas.clientWidth * dpr;
+  canvas.height = canvas.clientHeight * dpr;
+  lastFrame = -1;
+}
+addEventListener("resize", resize);
+resize();
+
+const clock = new THREE.Clock();
+function animate() {
+  requestAnimationFrame(animate);
+  const time = clock.getElapsedTime();
+
+  if (!video.paused && video.currentTime >= clipEnd()) video.pause();
+  const raw = Math.floor((video.currentTime - meta.start_sec) * meta.fps);
+  const frame = Math.min(numFrames - 1, Math.max(0, raw));
+  if (frame !== lastFrame) {
+    paint(frame);
+    drawTimeline(frame);
+    if (hasVideo) status.textContent = `${video.currentTime.toFixed(1)}초 · ${frame + 1} / ${numFrames}장 · 뉴런 ${n.toLocaleString()}개`;
+    lastFrame = frame;
+  }
+
+  const flap = video.paused ? 0.15 : 0.6;
+  for (const { pivot, side } of wings) pivot.rotation.z = side * flap * Math.sin(time * 30);
+  fly.position.y = 0.22 + Math.sin(time * 2) * 0.01;
+  brain.rotation.y = time * 0.15;
+
+  controls.update();
+  renderer.render(scene, camera);
+}
+animate();
+if (!hasVideo) status.textContent = "유튜브 링크와 구간을 넣고 불러오기를 눌러 주세요.";
+</script>
+</body>
+</html>

@@ -1,0 +1,27 @@
+# 가상환경, 캐시
+.venv/
+.venv-*/
+__pycache__/
+*.pyc
+.DS_Store
+
+# 큰 데이터 (FlyWire 원본, 학습 결과) - README의 "준비" 참고
+data/
+
+# 실행 결과물 (실행하면 다시 생성됨)
+results/
+flagged/
+viewer/brain_data.bin
+viewer/brain_meta.json
+viewer/video.mp4
+step4_response.png
+판별_분리/
+
+# 노래, 영상 (저작권 파일)
+김경호/
+김경호_분리/
+윤하/
+윤하_분리/
+다운로드 위치/
+*.mp3
+*.mp4

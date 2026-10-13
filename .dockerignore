@@ -1,0 +1,16 @@
+.venv
+__pycache__
+*.pyc
+results
+flagged
+김경호
+김경호_분리
+윤하
+윤하_분리
+다운로드 위치
+data/Connectivity_783.parquet
+data/brain_response.pt
+*_backup*
+*.png
+data/*.pt
+data/*.tsv
